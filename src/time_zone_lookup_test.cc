@@ -952,7 +952,8 @@ class StringZoneInfoSource : public ZoneInfoSource {
 std::string MakeExtendedTzif(std::int_fast64_t unix_time,
                              std::int_fast32_t utc_offset,
                              const std::string& abbr,
-                             const std::string& future_spec) {
+                             const std::string& future_spec,
+                             bool terminate_abbr = true) {
   std::string s;
   auto append32 = [&s](std::int_fast32_t v) {
     const std::int_fast32_t s32max = 0x7fffffff;
@@ -981,7 +982,8 @@ std::string MakeExtendedTzif(std::int_fast64_t unix_time,
     }
   };
 
-  const std::size_t charcnt = abbr.size() + 1;  // includes the trailing '\0'
+  // Normally includes the trailing '\0', as a valid TZif file must.
+  const std::size_t charcnt = abbr.size() + (terminate_abbr ? 1 : 0);
 
   // 32-bit header
   s.append(TZ_MAGIC, 4);
@@ -1043,7 +1045,35 @@ std::unique_ptr<ZoneInfoSource> ExtendedTestFactory(
     return std::unique_ptr<ZoneInfoSource>(new StringZoneInfoSource(
         MakeExtendedTzif(0, -5 * 3600, "EST", "EST5EDT,M3.2.0,M11.1.0")));
   }
+  if (name == "test:terminated_abbr") {
+    return std::unique_ptr<ZoneInfoSource>(new StringZoneInfoSource(
+        MakeExtendedTzif(0, -5 * 3600, "EST", "EST5EDT,M3.2.0,M11.1.0")));
+  }
+  if (name == "test:unterminated_abbr") {
+    return std::unique_ptr<ZoneInfoSource>(new StringZoneInfoSource(
+        MakeExtendedTzif(0, -5 * 3600, "EST", "EST5EDT,M3.2.0,M11.1.0",
+                         /*terminate_abbr=*/false)));
+  }
   return fallback(name);
+}
+
+// Tests loading a TZif file whose abbreviation area is not NUL-terminated.
+TEST(TimeZoneEdgeCase, UnterminatedAbbreviation) {
+  auto prev_factory = cctz_extension::zone_info_source_factory;
+  cctz_extension::zone_info_source_factory = ExtendedTestFactory;
+
+  // With the terminator the abbreviation stops where the file says it does.
+  time_zone tz;
+  ASSERT_TRUE(load_time_zone("test:terminated_abbr", &tz));
+  auto tp = convert(civil_second(2026, 1, 20, 12, 0, 0), tz);
+  ExpectTime(tp, tz, 2026, 1, 20, 12, 0, 0, -5 * 3600, false, "EST");
+  EXPECT_STREQ("EST", tz.lookup(tp).abbr);
+
+  // Without it the abbreviation would run into the "EDT" that the POSIX
+  // footer appends, so the zone is rejected instead.
+  EXPECT_FALSE(load_time_zone("test:unterminated_abbr", &tz));
+
+  cctz_extension::zone_info_source_factory = prev_factory;
 }
 
 // Tests that a TZif file whose explicit transitions end before epoch
