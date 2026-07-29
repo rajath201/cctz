@@ -947,13 +947,14 @@ class StringZoneInfoSource : public ZoneInfoSource {
   std::size_t offset_;
 };
 
-// Constructs a minimal valid TZif2 string with a single 64-bit transition
-// at the given transition time and a future POSIX rule.
+// Constructs a minimal TZif2 string with a single 64-bit transition
+// at the given transition time and a future POSIX rule. The abbreviation
+// area holds abbr verbatim, so a valid file's abbr must include the
+// trailing '\0' (e.g., std::string{"EST", 4}).
 std::string MakeExtendedTzif(std::int_fast64_t unix_time,
                              std::int_fast32_t utc_offset,
                              const std::string& abbr,
-                             const std::string& future_spec,
-                             bool terminate_abbr = true) {
+                             const std::string& future_spec) {
   std::string s;
   auto append32 = [&s](std::int_fast32_t v) {
     const std::int_fast32_t s32max = 0x7fffffff;
@@ -982,8 +983,7 @@ std::string MakeExtendedTzif(std::int_fast64_t unix_time,
     }
   };
 
-  // Normally includes the trailing '\0', as a valid TZif file must.
-  const std::size_t charcnt = abbr.size() + (terminate_abbr ? 1 : 0);
+  const std::size_t charcnt = abbr.size();
 
   // 32-bit header
   s.append(TZ_MAGIC, 4);
@@ -1000,7 +1000,7 @@ std::string MakeExtendedTzif(std::int_fast64_t unix_time,
   append32(utc_offset);               // tt_utoff
   s.push_back(0);                     // tt_isdst (standard time)
   s.push_back(0);                     // tt_desigidx
-  s.append(abbr.c_str(), charcnt);    // abbreviation table
+  s.append(abbr);                     // abbreviation table
 
   // 64-bit header
   s.append(TZ_MAGIC, 4);
@@ -1019,7 +1019,7 @@ std::string MakeExtendedTzif(std::int_fast64_t unix_time,
   append32(utc_offset);               // tt_utoff
   s.push_back(0);                     // tt_isdst (standard time)
   s.push_back(0);                     // tt_desigidx
-  s.append(abbr.c_str(), charcnt);  // abbreviation table
+  s.append(abbr);                     // abbreviation table
 
   // POSIX footer
   s.push_back('\n');
@@ -1036,23 +1036,25 @@ std::unique_ptr<ZoneInfoSource> ExtendedTestFactory(
     // -1 (1969-12-31T23:59:59Z) is the latest final transition before the
     // epoch, so the zone is rejected despite the future specification.
     return std::unique_ptr<ZoneInfoSource>(new StringZoneInfoSource(
-        MakeExtendedTzif(-1, -5 * 3600, "EST", "EST5EDT,M3.2.0,M11.1.0")));
+        MakeExtendedTzif(-1, -5 * 3600, std::string{"EST", 4},
+                         "EST5EDT,M3.2.0,M11.1.0")));
   }
   if (name == "test:ExtendedFarFuture") {
     // 0 (1970-01-01T00:00:00Z) is the earliest final transition an extended
     // zone may have, which maximizes the 400-year shift that BreakTime()
     // needs for a lookup at the maximum time.
     return std::unique_ptr<ZoneInfoSource>(new StringZoneInfoSource(
-        MakeExtendedTzif(0, -5 * 3600, "EST", "EST5EDT,M3.2.0,M11.1.0")));
+        MakeExtendedTzif(0, -5 * 3600, std::string{"EST", 4},
+                         "EST5EDT,M3.2.0,M11.1.0")));
   }
   if (name == "test:terminated_abbr") {
     return std::unique_ptr<ZoneInfoSource>(new StringZoneInfoSource(
-        MakeExtendedTzif(0, -5 * 3600, "EST", "EST5EDT,M3.2.0,M11.1.0")));
+        MakeExtendedTzif(0, -5 * 3600, std::string{"EST", 4},
+                         "EST5EDT,M3.2.0,M11.1.0")));
   }
   if (name == "test:unterminated_abbr") {
     return std::unique_ptr<ZoneInfoSource>(new StringZoneInfoSource(
-        MakeExtendedTzif(0, -5 * 3600, "EST", "EST5EDT,M3.2.0,M11.1.0",
-                         /*terminate_abbr=*/false)));
+        MakeExtendedTzif(0, -5 * 3600, "EST", "EST5EDT,M3.2.0,M11.1.0")));
   }
   return fallback(name);
 }
