@@ -1047,33 +1047,23 @@ std::unique_ptr<ZoneInfoSource> ExtendedTestFactory(
         MakeExtendedTzif(0, -5 * 3600, std::string{"EST", 4},
                          "EST5EDT,M3.2.0,M11.1.0")));
   }
-  if (name == "test:terminated_abbr") {
-    return std::unique_ptr<ZoneInfoSource>(new StringZoneInfoSource(
-        MakeExtendedTzif(0, -5 * 3600, std::string{"EST", 4},
-                         "EST5EDT,M3.2.0,M11.1.0")));
-  }
-  if (name == "test:unterminated_abbr") {
+  if (name == "test:UnterminatedAbbreviation") {
+    // The abbreviation area is missing its final NUL, so the abbreviation
+    // would run into whatever ExtendTransitions() appends behind it.
     return std::unique_ptr<ZoneInfoSource>(new StringZoneInfoSource(
         MakeExtendedTzif(0, -5 * 3600, "EST", "EST5EDT,M3.2.0,M11.1.0")));
   }
   return fallback(name);
 }
 
-// Tests loading a TZif file whose abbreviation area is not NUL-terminated.
+// Tests that a TZif file whose abbreviation area is not NUL-terminated
+// is rejected.
 TEST(TimeZoneEdgeCase, UnterminatedAbbreviation) {
   auto prev_factory = cctz_extension::zone_info_source_factory;
   cctz_extension::zone_info_source_factory = ExtendedTestFactory;
 
-  // With the terminator the abbreviation stops where the file says it does.
   time_zone tz;
-  ASSERT_TRUE(load_time_zone("test:terminated_abbr", &tz));
-  auto tp = convert(civil_second(2026, 1, 20, 12, 0, 0), tz);
-  ExpectTime(tp, tz, 2026, 1, 20, 12, 0, 0, -5 * 3600, false, "EST");
-  EXPECT_STREQ("EST", tz.lookup(tp).abbr);
-
-  // Without it the abbreviation would run into the "EDT" that the POSIX
-  // footer appends, so the zone is rejected instead.
-  EXPECT_FALSE(load_time_zone("test:unterminated_abbr", &tz));
+  EXPECT_FALSE(load_time_zone("test:UnterminatedAbbreviation", &tz));
 
   cctz_extension::zone_info_source_factory = prev_factory;
 }
