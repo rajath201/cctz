@@ -186,9 +186,14 @@ TEST(TimeZone, Failures) {
   EXPECT_FALSE(load_time_zone("file:/../etc/passwd", &tz));
   EXPECT_FALSE(load_time_zone("file:America/../America/Los_Angeles", &tz));
 
-  // Windows accepts '\' as a path separator, so those escape as well.
+#if defined(_WIN32)
+  // Windows accepts '\' as a path separator, so these escape as well.
+  // If they were admitted, the second would resolve back into the zoneinfo
+  // directory and load, failing the test. Elsewhere '\' is an ordinary
+  // filename character, so these would only fail as nonexistent names.
   EXPECT_FALSE(load_time_zone("file:..\\etc\\passwd", &tz));
   EXPECT_FALSE(load_time_zone("file:America\\..\\America/Los_Angeles", &tz));
+#endif
 
   // Reject non-regular files and directories.
   EXPECT_FALSE(load_time_zone("file:/dev/null", &tz));
