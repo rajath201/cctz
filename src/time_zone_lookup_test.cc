@@ -195,10 +195,13 @@ TEST(TimeZone, Failures) {
   EXPECT_FALSE(load_time_zone("file:America\\..\\America/Los_Angeles", &tz));
 #endif
 
-  // Reject non-regular files and directories.
+#if !defined(_MSC_VER)
+  // Reject non-regular files and directories. The check lives in the
+  // non-MSVC FOpen(), so only expect it there.
   EXPECT_FALSE(load_time_zone("file:/dev/null", &tz));
   EXPECT_FALSE(load_time_zone("file:/dev/stdin", &tz));
   EXPECT_FALSE(load_time_zone("file:/tmp", &tz));
+#endif
 }
 
 TEST(TimeZone, Equality) {
