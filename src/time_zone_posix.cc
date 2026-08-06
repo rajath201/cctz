@@ -42,13 +42,14 @@ const char* ParseInt(const char* p, int min, int max, int* vp) {
   return p;
 }
 
-// abbr = <.*?> | [^-+,\d]{3,}
+// abbr = <.+?> | [^-+,\d]{3,}
 const char* ParseAbbr(const char* p, std::string* abbr) {
   const char* op = p;
   if (*p == '<') {  // special zoneinfo <...> form
     while (*++p != '>') {
       if (*p == '\0') return nullptr;
     }
+    if (p - op < 2) return nullptr;  // no "<>"
     abbr->assign(op + 1, static_cast<std::size_t>(p - op) - 1);
     return ++p;
   }
