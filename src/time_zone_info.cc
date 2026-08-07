@@ -405,6 +405,9 @@ inline FilePtr FOpen(const char* path) {
   // to stdio. Zone names are potentially attacker-controlled, and a plain
   // fopen() on a FIFO or device node (reachable via the "file:" prefix or an
   // absolute path) would block indefinitely or read unbounded data.
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
   const int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
   if (fd >= 0) {
     struct stat st;
@@ -760,11 +763,6 @@ bool TimeZoneInfo::Load(ZoneInfoSource* zip) {
     if (transitions_[i].unix_time < -(1LL << 59) ||
         transitions_[i].unix_time > (1LL << 59))
       return false;  // out of range
-    if (i != 0) {
-      // Check that the transitions are ordered by time (as zic guarantees).
-      if (!Transition::ByUnixTime()(transitions_[i - 1], transitions_[i]))
-        return false;  // out of order
-    }
   }
   bool seen_type_0 = false;
   for (std::size_t i = 0; i != hdr.timecnt; ++i) {
@@ -806,7 +804,13 @@ bool TimeZoneInfo::Load(ZoneInfoSource* zip) {
       default_transition_type_ = static_cast<std::uint_fast8_t>(index);
   }
 
-  // Copy all the abbreviations.
+  // Copy all the abbreviations. The area holds NUL-terminated strings, and
+  // LocalTime() hands out a pointer into it, so the final abbreviation has
+  // to be terminated within the area itself. Otherwise an abbreviation runs
+  // on into whatever ExtendTransitions() later appends. (hdr.charcnt != 0
+  // because every abbr_index was validated to be less than it.)
+  if (bp[hdr.charcnt - 1] != '\0')
+    return false;
   abbreviations_.reserve(hdr.charcnt + 10);
   abbreviations_.assign(bp, hdr.charcnt);
   bp += hdr.charcnt;
@@ -881,11 +885,13 @@ bool TimeZoneInfo::Load(ZoneInfoSource* zip) {
     ttp = &transition_types_[tr.type_index];
     tr.civil_sec = LocalTime(tr.unix_time, *ttp).cs;
     if (i != 0) {
-      // Check that the transitions are ordered by civil time. Essentially
-      // this means that an offset change cannot cross another such change.
-      // No one does this in practice, and we depend on it in MakeTime().
-      if (!Transition::ByCivilTime()(transitions_[i - 1], tr))
+      // Check that offset changes don't cross each other. No one
+      // does this in practice, and we depend on increasing absolute
+      // and civil times in BreakTime() and MakeTime() respectively.
+      if (!Transition::ByUnixTime()(transitions_[i - 1], tr) ||
+          !Transition::ByCivilTime()(transitions_[i - 1], tr)) {
         return false;  // out of order
+      }
     }
   }
 

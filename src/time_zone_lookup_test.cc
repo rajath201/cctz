@@ -180,6 +180,13 @@ TEST(TimeZone, Failures) {
   EXPECT_EQ(chrono::system_clock::from_time_t(0),
             convert(civil_second(1970, 1, 1, 0, 0, 0), tz));  // UTC
 
+  // Reject a fixed-offset name with a NUL where a digit belongs.
+  for (const int i : {10, 11, 13, 14, 16, 17}) {
+    std::string name = "Fixed/UTC+00:00:00";
+    name[static_cast<std::size_t>(i)] = '\0';
+    EXPECT_FALSE(load_time_zone(name, &tz)) << "NUL at offset " << i;
+  }
+
   // Reject path-traversal components.
   EXPECT_FALSE(load_time_zone("file:../etc/passwd", &tz));
   EXPECT_FALSE(load_time_zone("file:../../etc/passwd", &tz));
@@ -959,8 +966,10 @@ class StringZoneInfoSource : public ZoneInfoSource {
   std::size_t offset_;
 };
 
-// Constructs a minimal valid TZif2 string with a single 64-bit transition
-// at the given transition time and a future POSIX rule.
+// Constructs a minimal TZif2 string with a single 64-bit transition
+// at the given transition time and a future POSIX rule. The abbreviation
+// area holds abbr verbatim, so a valid file's abbr must include the
+// trailing '\0' (e.g., std::string{"EST", 4}).
 std::string MakeExtendedTzif(std::int_fast64_t unix_time,
                              std::int_fast32_t utc_offset,
                              const std::string& abbr,
@@ -993,7 +1002,7 @@ std::string MakeExtendedTzif(std::int_fast64_t unix_time,
     }
   };
 
-  const std::size_t charcnt = abbr.size() + 1;  // includes the trailing '\0'
+  const std::size_t charcnt = abbr.size();
 
   // 32-bit header
   s.append(TZ_MAGIC, 4);
@@ -1010,7 +1019,7 @@ std::string MakeExtendedTzif(std::int_fast64_t unix_time,
   append32(utc_offset);               // tt_utoff
   s.push_back(0);                     // tt_isdst (standard time)
   s.push_back(0);                     // tt_desigidx
-  s.append(abbr.c_str(), charcnt);    // abbreviation table
+  s.append(abbr);                     // abbreviation table
 
   // 64-bit header
   s.append(TZ_MAGIC, 4);
@@ -1029,7 +1038,7 @@ std::string MakeExtendedTzif(std::int_fast64_t unix_time,
   append32(utc_offset);               // tt_utoff
   s.push_back(0);                     // tt_isdst (standard time)
   s.push_back(0);                     // tt_desigidx
-  s.append(abbr.c_str(), charcnt);  // abbreviation table
+  s.append(abbr);                     // abbreviation table
 
   // POSIX footer
   s.push_back('\n');
@@ -1046,16 +1055,44 @@ std::unique_ptr<ZoneInfoSource> ExtendedTestFactory(
     // -1 (1969-12-31T23:59:59Z) is the latest final transition before the
     // epoch, so the zone is rejected despite the future specification.
     return std::unique_ptr<ZoneInfoSource>(new StringZoneInfoSource(
-        MakeExtendedTzif(-1, -5 * 3600, "EST", "EST5EDT,M3.2.0,M11.1.0")));
+        MakeExtendedTzif(-1, -5 * 3600, std::string{"EST", 4},
+                         "EST5EDT,M3.2.0,M11.1.0")));
   }
   if (name == "test:ExtendedFarFuture") {
     // 0 (1970-01-01T00:00:00Z) is the earliest final transition an extended
     // zone may have, which maximizes the 400-year shift that BreakTime()
     // needs for a lookup at the maximum time.
     return std::unique_ptr<ZoneInfoSource>(new StringZoneInfoSource(
+        MakeExtendedTzif(0, -5 * 3600, std::string{"EST", 4},
+                         "EST5EDT,M3.2.0,M11.1.0")));
+  }
+  if (name == "test:ExtendedOverlappingRules") {
+    // The daylight time of one year starts more than four days after its
+    // nominal date, while the next year's ends more than five days before
+    // its own, so the two years' generated transitions overlap.
+    return std::unique_ptr<ZoneInfoSource>(new StringZoneInfoSource(
+        MakeExtendedTzif(0, -5 * 3600, std::string{"STD", 4},
+                         "STD-12:00:00DST12:00:00,358/100:00:00,1/-139:00:00")));
+  }
+  if (name == "test:UnterminatedAbbreviation") {
+    // The abbreviation area is missing its final NUL, so the abbreviation
+    // would run into whatever ExtendTransitions() appends behind it.
+    return std::unique_ptr<ZoneInfoSource>(new StringZoneInfoSource(
         MakeExtendedTzif(0, -5 * 3600, "EST", "EST5EDT,M3.2.0,M11.1.0")));
   }
   return fallback(name);
+}
+
+// Tests that a TZif file whose abbreviation area is not NUL-terminated
+// is rejected.
+TEST(TimeZoneEdgeCase, UnterminatedAbbreviation) {
+  auto prev_factory = cctz_extension::zone_info_source_factory;
+  cctz_extension::zone_info_source_factory = ExtendedTestFactory;
+
+  time_zone tz;
+  EXPECT_FALSE(load_time_zone("test:UnterminatedAbbreviation", &tz));
+
+  cctz_extension::zone_info_source_factory = prev_factory;
 }
 
 // Tests that a TZif file whose explicit transitions end before epoch
@@ -1067,6 +1104,20 @@ TEST(TimeZoneEdgeCase, ExtendedBeforeEpoch) {
   // Extended zones must end with a non-negative explicit transition.
   time_zone tz;
   EXPECT_FALSE(load_time_zone("test:ExtendedBeforeEpoch", &tz));
+
+  cctz_extension::zone_info_source_factory = prev_factory;
+}
+
+// A transition time may include a day offset of up to +/-167 hours, so the
+// rules for consecutive years can overlap, producing transitions that go
+// backward in unix time. BreakTime() binary searches the transitions by
+// unix time, so such a zone must be rejected.
+TEST(TimeZoneEdgeCase, ExtendedOverlappingRules) {
+  auto prev_factory = cctz_extension::zone_info_source_factory;
+  cctz_extension::zone_info_source_factory = ExtendedTestFactory;
+
+  time_zone tz;
+  EXPECT_FALSE(load_time_zone("test:ExtendedOverlappingRules", &tz));
 
   cctz_extension::zone_info_source_factory = prev_factory;
 }
