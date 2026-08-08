@@ -137,6 +137,7 @@ TEST(TimeZonePosix, ParseErrors) {
   EXPECT_FALSE(ParsePosixSpec("ET+", &zone));
   EXPECT_FALSE(ParsePosixSpec("ET-", &zone));
   EXPECT_FALSE(ParsePosixSpec("ET,", &zone));
+  EXPECT_FALSE(ParsePosixSpec("<", &zone));
   EXPECT_FALSE(ParsePosixSpec("<00", &zone));
   EXPECT_FALSE(ParsePosixSpec("<>0", &zone));
 
