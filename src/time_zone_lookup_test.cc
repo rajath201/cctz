@@ -187,6 +187,14 @@ TEST(TimeZone, Failures) {
     EXPECT_FALSE(load_time_zone(name, &tz)) << "NUL at offset " << i;
   }
 
+  // Reject a fixed-offset name whose minute or second field is out of range,
+  // even when the aggregate offset stays inside the supported 24h span.
+  EXPECT_FALSE(load_time_zone("Fixed/UTC+00:60:00", &tz));
+  EXPECT_FALSE(load_time_zone("Fixed/UTC+00:99:00", &tz));
+  EXPECT_FALSE(load_time_zone("Fixed/UTC+00:00:60", &tz));
+  EXPECT_FALSE(load_time_zone("Fixed/UTC+00:00:99", &tz));
+  EXPECT_FALSE(load_time_zone("Fixed/UTC-00:00:99", &tz));
+
   // Reject path-traversal components.
   EXPECT_FALSE(load_time_zone("file:../etc/passwd", &tz));
   EXPECT_FALSE(load_time_zone("file:../../etc/passwd", &tz));

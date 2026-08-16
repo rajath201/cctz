@@ -75,9 +75,9 @@ bool FixedOffsetFromName(const std::string& name, seconds* offset) {
   int hours = Parse02d(np + 1);
   if (hours == -1) return false;
   int mins = Parse02d(np + 4);
-  if (mins == -1) return false;
+  if (mins == -1 || mins > 59) return false;
   int secs = Parse02d(np + 7);
-  if (secs == -1) return false;
+  if (secs == -1 || secs > 59) return false;
 
   secs += ((hours * 60) + mins) * 60;
   if (secs > 24 * 60 * 60) return false;  // outside supported offset range
