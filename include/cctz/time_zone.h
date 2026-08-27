@@ -404,9 +404,20 @@ bool join_seconds(
     const time_point<seconds>& sec, const femtoseconds& fs,
     time_point<std::chrono::duration<Rep, std::ratio<1, Denom>>>* tpp) {
   using D = std::chrono::duration<Rep, std::ratio<1, Denom>>;
-  // TODO(#199): Return false if result unrepresentable as a time_point<D>.
-  *tpp = std::chrono::time_point_cast<D>(sec);
-  *tpp += std::chrono::duration_cast<D>(fs);
+  const auto count = sec.time_since_epoch().count();
+  const auto sub = std::chrono::duration_cast<D>(fs).count();  // in [0, Denom)
+  // The result is count*Denom + sub ticks of D. Reject inputs whose value is
+  // not representable in Rep. Note that count*Denom by itself can exceed Rep
+  // even when count*Denom + sub does not, so the bound and the result are both
+  // computed without forming that intermediate product.
+  const auto qmin = (std::numeric_limits<Rep>::min)() / Denom;
+  const auto rmin = (std::numeric_limits<Rep>::min)() % Denom;
+  if (count > ((std::numeric_limits<Rep>::max)() - sub) / Denom) return false;
+  if (count < (sub - rmin >= Denom ? qmin - 1 : qmin)) return false;
+  const Rep ticks = (count < qmin)
+                        ? static_cast<Rep>(qmin * Denom + (sub - Denom))
+                        : static_cast<Rep>(count * Denom + sub);
+  *tpp = time_point<D>() + D{ticks};
   return true;
 }
 

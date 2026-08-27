@@ -793,6 +793,30 @@ TEST(Parse, TimePointResolution) {
   EXPECT_EQ("03:00:00", cctz::format(kFmt, tp_h, utc));
 }
 
+TEST(Parse, TimePointRange) {
+  const time_zone utc = utc_time_zone();
+
+  // An instant that is representable as a time_point<seconds> but whose value
+  // in a finer resolution would not fit in the destination Rep must be rejected
+  // rather than silently wrapped (forming count*Denom overflowed a signed
+  // 64-bit integer, which is undefined behavior).
+  time_point<chrono::nanoseconds> tp_ns;
+  EXPECT_FALSE(parse("%s", "9223372036854775807", utc, &tp_ns));
+  EXPECT_FALSE(parse("%s", "9223372037", utc, &tp_ns));
+  EXPECT_TRUE(parse("%s", "9223372036", utc, &tp_ns));
+  EXPECT_EQ(chrono::system_clock::from_time_t(9223372036), tp_ns);
+  EXPECT_FALSE(parse("%s", "-9223372037", utc, &tp_ns));
+  EXPECT_TRUE(parse("%s", "-9223372036", utc, &tp_ns));
+  EXPECT_EQ(chrono::system_clock::from_time_t(-9223372036), tp_ns);
+
+  time_point<chrono::microseconds> tp_us;
+  EXPECT_FALSE(parse("%s", "9223372036855", utc, &tp_us));
+  EXPECT_TRUE(parse("%s", "9223372036854", utc, &tp_us));
+  EXPECT_EQ(time_point<chrono::microseconds>() +
+                chrono::microseconds(9223372036854000000),
+            tp_us);
+}
+
 TEST(Parse, TimePointExtendedResolution) {
   const char kFmt[] = "%H:%M:%E*S";
   const time_zone utc = utc_time_zone();
