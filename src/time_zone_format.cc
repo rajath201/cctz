@@ -790,8 +790,14 @@ bool parse(const std::string& format, const std::string& input,
         if (data != nullptr) tm.tm_mon -= 1;
         week_num = -1;
         continue;
-      case 'd':
       case 'e':
+        // format() space-pads a single-digit day of the month under %e, so
+        // skip that leading space to keep %e round-tripping through parse().
+        if (*data == ' ') ++data;
+        data = ParseInt(data, 2, 1, 31, &tm.tm_mday);
+        week_num = -1;
+        continue;
+      case 'd':
         data = ParseInt(data, 2, 1, 31, &tm.tm_mday);
         week_num = -1;
         continue;

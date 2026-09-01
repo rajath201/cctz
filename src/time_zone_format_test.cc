@@ -956,6 +956,13 @@ TEST(Parse, PosixConversions) {
   EXPECT_TRUE(parse("%e", "15", tz, &tp));
   EXPECT_EQ(15, convert(tp, tz).day());  // Equivalent to %d
 
+  // format() space-pads a single-digit day of the month under %e, so parse()
+  // accepts that pad, including when the field is not at the start of input.
+  tp = reset;
+  EXPECT_TRUE(parse("%m/%e", "10/ 8", tz, &tp));
+  EXPECT_EQ(10, convert(tp, tz).month());
+  EXPECT_EQ(8, convert(tp, tz).day());
+
   tp = reset;
   EXPECT_TRUE(parse("%H", "17", tz, &tp));
   EXPECT_EQ(17, convert(tp, tz).hour());
